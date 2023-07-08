@@ -19,41 +19,23 @@ torch.autograd.set_detect_anomaly(False)
 torch.autograd.profiler.profile(False)
 torch.autograd.profiler.emit_nvtx(False)
 
+torch.autograd.set_detect_anomaly(False)
+torch.autograd.profiler.profile(False)
+torch.autograd.profiler.emit_nvtx(False)
+
 class DQN(object):
-    def __init__(self, model, config, name, use_wandb=False, env="CartPole-v0") -> None:
-        # GYM environment
-        self.name =name
+    def __init__(self, model, config, name, use_wandb=False, env="CartPole-v0", record_video=False, use_cuda =False) -> None:
+
+        # Prep
+
+        self.name = name
         self.use_wandb =use_wandb
-        if self.use_wandb:
-          self.run = wandb.init(project="test1", 
-                 entity="luthier-man",
-                 name=self.name,
-                 config=config,
-                 monitor_gym=True,
-                 save_code=True, reinit=True)
-          self.run.log_code(".")
-          
-          self.run.define_metric("Train Episode", hidden=True)
-          self.run.define_metric("Test Episode", hidden=True)
+        self.record_video = record_video
+        self.use_cuda = use_cuda
 
-          self.run.define_metric("Average Loss Per Episode","Train Episode")
-          self.run.define_metric("Running Average Rewards (50)","Train Episode")
-          self.run.define_metric("Q-values","Train Episode")
-          self.run.define_metric("Average Q-values","Train Episode")
-
-          self.run.define_metric("Episode Time", "Train Episode")
-          self.run.define_metric("Total Train Rewards", "Train Episode")
-          self.run.define_metric("Total Test Rewards", "Test Episode")
-
-        self.env = gym.wrappers.RecordVideo(gym.make(env), f"videos",  episode_trigger = lambda x: x % 10 == 0)
-        self.action_space = self.env.action_space.n
-        self.state_space = self.env.observation_space.shape[0]
-        print("State Space: {}".format(self.state_space))
-        print("Action Space: {}".format(self.action_space))
-        
         # HYPERPARAMETERS
+
         self.config = config
-        print(config)
         self.lr = self.config["learning_rate"]
         self.gamma = self.config["gamma"]
         self.epsilon = self.config["epsilon"]
@@ -69,10 +51,42 @@ class DQN(object):
         self.use_per = self.config["use_PER"]
         self.reupload= self.config["is_Reupload"]
         self.n_layers = self.config["n_layers"]
+        self.loss_fn = self.config["loss"]
+        self.per_alpha = 0.6,
+        self.per_e = 0.1, 
+        self.per_beta = 0.4, 
+        self.per_beta_per=.01
+        print(config)
 
-        use_cuda = False
+        # GYM environment
         
-        self.device = torch.device("cuda" if use_cuda else "cpu")
+        if self.use_wandb:
+          self.run = wandb.init(project="test1", 
+                 entity="luthier-man",
+                 name=self.name,
+                 config=self.config,
+                 monitor_gym=True,
+                 save_code=True, reinit=True)
+          self.run.log_code(".")
+          self.run.define_metric("Train Episode", hidden=True)
+          self.run.define_metric("Test Episode", hidden=True)
+          self.run.define_metric("Average Loss Per Episode","Train Episode")
+          self.run.define_metric("Running Average Rewards (50)","Train Episode")
+          self.run.define_metric("Q-values","Train Episode")
+          self.run.define_metric("Average Q-values","Train Episode")
+          self.run.define_metric("Episode Time", "Train Episode")
+          self.run.define_metric("Total Train Rewards", "Train Episode")
+          self.run.define_metric("Total Test Rewards", "Test Episode")  
+        if self.record_video:
+          self.env = gym.wrappers.RecordVideo(gym.make(env), f"videos",  episode_trigger = lambda x: x % 10 == 0)
+        else:
+          self.env = gym.make(env)
+        self.action_space = self.env.action_space.n
+        self.state_space = self.env.observation_space.shape[0]
+        print("State Space: {}".format(self.state_space))
+        print("Action Space: {}".format(self.action_space))
+      
+        self.device = torch.device("cuda" if self.use_cuda else "cpu")
         
         # Q-network
         self.q_network = model(self.n_layers)
@@ -82,32 +96,33 @@ class DQN(object):
         if self.reupload:
           self.lr_in = self.config["learning_rate_in"]
           self.lr_out = self.config["learning_rate_out"]
-          self.param_in = [self.q_network.qvc.w_in]
-          self.param_weights = [self.q_network.qvc.weights]
+          self.param_in = [self.q_network.qvc.state_dict()["w_in"]]
+          self.param_weights = [self.q_network.qvc.state_dict()["weights"]]
           self.param_out = [self.q_network.w_out]
           self.opt_in =Adam(self.param_in, lr=self.lr_in,amsgrad=True)
           self.opt_var =Adam(self.param_weights,lr=self.lr,amsgrad=True)
           self.opt_out =Adam(self.param_out, lr=self.lr_out,amsgrad=True)
         else:
           self.opt = Adam(self.q_network.parameters(),lr=self.lr,amsgrad=True)
+        
         # Target network
         self.target = model(self.n_layers)
         self.sync_weights()
+        
         # GPU setup
-
-        if use_cuda:
+        if self.use_cuda:
             print("GPU being used:", torch.cuda.get_device_name(0))
             self.q_network.cuda(self.device)
             self.target.cuda(self.device)
         self.target.eval()
         
         # DQN setup
-        self.loss_fn = torch.nn.MSELoss()
+       
         if self.use_wandb:
           self.run.watch(self.q_network, log="all",log_freq=1,
             criterion=self.loss_fn, log_graph=True)
         if self.use_per:
-          self.memory = PER_Memory(self.buff)
+          self.memory = PER_MemoryTree(self.buff)
         else:
           self.memory = ER_Memory(self.buff)
         self.counter = 0
@@ -127,7 +142,7 @@ class DQN(object):
         self.path = "{}_logs".format(self.name)
         self.save_path = "{}/{}_ep_{}.pt".format(self.path,self.name,self.current_episode+1)
         os.makedirs(self.path, exist_ok=True)
-        
+  
     def preprocess_state(self,x):
         x = np.stack(x)
         state = torch.FloatTensor(x).to(self.device)
@@ -176,7 +191,7 @@ class DQN(object):
         if len(self.memory) < self.train_start:
             return 0
         if self.use_per:
-          idx, minibatch, ws = self.memory.sample(self.batch)
+          idx, minibatch = self.memory.sample(self.batch)
         else: 
           minibatch = self.memory.sample(min(len(self.memory), self.batch))
         states, actions, rewards, next_states, dones = minibatch
@@ -197,7 +212,8 @@ class DQN(object):
           error = torch.absolute(y-Q)
           self.memory.update_priorities(idx, error)
           self.opt_zero_grad()
-          loss = torch.multiply((error).pow(2),self.preprocess_state(ws).pow(1-self.epsilon))
+          loss = error.pow(2)
+          # loss = torch.multiply((error).pow(2),self.preprocess_state(ws).pow(1-self.epsilon))
           loss=loss.mean()
           loss.backward()
           self.opt_step()
@@ -327,5 +343,6 @@ class DQN(object):
                     self.run.log({"Total Test Rewards": self.test_rewards[t], "Test Episode": t})
                   break
               s1 = s2
+              steps+=1
               steps+=1
 
