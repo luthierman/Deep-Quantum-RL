@@ -59,3 +59,83 @@ class Reupload_Net(nn.Module):
 
         
 # Reupload_Net(5).print_circuit()
+
+class IBS_Net(nn.Module):
+  def __init__(self, n_layers=3, n_qubits=4, use_cuda =False):
+      super(IBS_Net, self).__init__()
+      self.L = 2
+      self.M = 2
+      self.n = 4
+      self.use_cuda = use_cuda
+      dev = qml.device("qulacs.simulator", wires=self.n)
+      self.thetas = self.initialize()
+      self.weight_shapes = {"weights": self.thetas.shape}
+      @qml.qnode(dev, interface='torch')
+      def circuit(inputs, weights):
+        qml.AngleEmbedding(inputs*(np.pi/4), 
+                          wires = range(self.n),
+                          rotation="Y")
+        for i in range(0,2*self.M*self.L,2*self.L):
+          self.block(weights[i:i+2*self.L],self.n, self.L, self.M)
+        return [qml.expval(qml.PauliY(ind)) for ind in range(4)]
+        
+      self.circuit = circuit
+      self.qlayer = qml.qnn.TorchLayer(circuit, self.weight_shapes)#.to('cuda' if use_cuda else 'cpu')
+      self.linear1 = nn.Linear(self.n, 2)#.to('cuda' if use_cuda else 'cpu')
+      nn.init.xavier_normal_(self.linear1.weight)
+      self.linear1.bias.data.zero_()
+      new_state_dict = self.qlayer.state_dict()
+      new_state_dict['weights'] = torch.tensor(self.thetas)
+      self.qlayer.load_state_dict(new_state_dict)
+      self.print_circuit()
+
+  def initialize(self):
+      parameters = np.zeros((self.M,2*self.L,self.n))
+      for m in range(self.M):
+        stack = []
+        for l in range(self.L):
+          for i in range(self.n):
+            theta = np.random.uniform(0,2*np.pi)
+            stack.append(theta)
+            parameters[m,l,i] = theta
+        for l in range(self.L,2*self.L):
+          for i in range(self.n):
+            parameters[m,l,self.n-i-1] = stack.pop()
+      return qml.math.concatenate(parameters)
+  def block(self,parameters,n, L, M):
+      U_m = []
+      ops = [qml.RX, qml.RY, qml.RZ]
+      for l in range(L):
+        for i in range(n):
+          U = random.choice(ops)
+          U_m.append(U)
+          U(parameters[l,i], wires=i)
+        for i in range(n-1):
+          qml.CZ(wires=[(i)%n,(i+1)%n])
+      for l in range(L, 2*L):
+        for i in range(n-1):
+          qml.CZ(wires=[n-i-2,n-i-1])
+        for i in range(n):
+          U = U_m.pop()
+          qml.adjoint(U(parameters[l,n-i-1], wires=n-i-1))
+  def forward(self, x):
+        x = torch.tensor(x)
+        x = x.float()#.to('cuda' if self.use_cuda else 'cpu')
+        x.requires_grad = True
+        x = self.qlayer(x)
+        x = self.linear1(x)
+        return x.float()
+
+  def print_circuit(self):
+        self.thetas = self.qlayer.state_dict()["weights"]
+        drawer = qml.draw(self.circuit)(torch.tensor([0,0,0,0]),
+                                        self.thetas)
+        print(drawer)
+
+  def print_circuit_mpl(self):
+        self.thetas = self.qlayer.state_dict()["weights"]
+        qml.drawer.use_style("black_white_dark")
+
+        drawer = qml.draw_mpl(self.circuit,fontsize="xx-large", expansion_strategy="device")(torch.tensor([0,0,0,0]),
+                                        self.thetas)
+        return drawer
