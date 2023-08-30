@@ -12,7 +12,7 @@ class Reupload_Net(nn.Module):
       self.weight_shapes = {"weights": (self.n_layers, self.n_qubits, 3), 
                             "w_in": (self.n_layers,self.n_qubits) 
                             }
-      dev = qml.device("qulacs.simulator", wires=self.n_qubits)
+      dev = qml.device("lightning.qubit", wires=self.n_qubits)
       def layer( W):
         for i in range(self.n_qubits):
           qml.RY(W[i,1], wires=i)
