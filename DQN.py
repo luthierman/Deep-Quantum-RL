@@ -96,9 +96,9 @@ class DQN(object):
         if self.reupload:
           self.lr_in = self.config["learning_rate_in"]
           self.lr_out = self.config["learning_rate_out"]
-          self.param_in = [self.q_network.qvc.state_dict()["w_in"]]
-          self.param_weights = [self.q_network.qvc.state_dict()["weights"]]
-          self.param_out = [self.q_network.w_out]
+          self.param_in = [self.q_network.state_dict()["qvc.w_in"]]
+          self.param_weights = [self.q_network.state_dict()["qvc.weights"]]
+          self.param_out = [self.q_network.state_dict()["w_out"]]
           self.opt_in =Adam(self.param_in, lr=self.lr_in,amsgrad=True)
           self.opt_var =Adam(self.param_weights,lr=self.lr,amsgrad=True)
           self.opt_out =Adam(self.param_out, lr=self.lr_out,amsgrad=True)
@@ -197,14 +197,13 @@ class DQN(object):
         states, actions, rewards, next_states, dones = minibatch
         self.q_network.train()
         self.target.eval()
+        Q = self.q_network.forward(states).gather(1, actions).squeeze(-1)# Q(s, a, wq)
         # DDQN
         if self.ddqn:
-          Q = self.q_network.forward(states).gather(1, actions).squeeze(-1)# Q(s, a, wq)
           A_best = self.q_network.forward(next_states).argmax(1).reshape(-1,1) # 
           Q_next = self.target.forward(next_states).gather(1, A_best).squeeze(-1) # max _a Q(ns, argmax_a(Q(ns, a, wq)) , wt)
         # DQN
         else:
-          Q = self.q_network.forward(states).gather(1, actions).squeeze(-1)# Q(s, a, wq)
           Q_next = self.target.forward(next_states).max(1)[0].detach() # max _a Q(ns, a, wt)
         y = torch.flatten(rewards) + self.gamma *(1-torch.flatten(dones)) * Q_next # bellman 
         if self.use_per:
