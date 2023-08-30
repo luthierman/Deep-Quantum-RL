@@ -67,7 +67,7 @@ class IBS_Net(nn.Module):
       self.M = 2
       self.n = 4
       self.use_cuda = use_cuda
-      dev = qml.device("qulacs.simulator", wires=self.n)
+      dev = qml.device("lightning.qubit", wires=self.n)
       self.thetas = self.initialize()
       self.weight_shapes = {"weights": self.thetas.shape}
       @qml.qnode(dev, interface='torch')
