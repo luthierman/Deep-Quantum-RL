@@ -24,7 +24,7 @@ torch.autograd.profiler.profile(False)
 torch.autograd.profiler.emit_nvtx(False)
 
 class DQN(object):
-    def __init__(self, model, config, name, use_wandb=False, env="CartPole-v0", record_video=False, use_cuda =False) -> None:
+    def __init__(self, model, config, name, use_wandb=False, env="CartPole-v1", record_video=False, use_cuda =False) -> None:
 
         # Prep
 
