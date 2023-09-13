@@ -19,11 +19,13 @@ config = {
   "is_DDQN": False,
   "use_PER": True,
   "is_Reupload":True,
-  "n_layers":3
+  "n_layers":3,
+  "loss": torch.nn.MSELoss()
 }
 
 def main():
-  agent_dqn = DQN(Reupload_Net, config, "Classical-3-layer-agent", True)
+  agent_dqn = DQN(Reupload_Net, config, "Quantum-3-layer-agent", use_wandb=False)
   agent_dqn.train()
 # agent_dqn_er.test()
-  agent_dqn.run.finish()
+  # agent_dqn.run.finish()
+main()

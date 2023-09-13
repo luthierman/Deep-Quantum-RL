@@ -245,7 +245,7 @@ class DQN(object):
           total_loss = [] 
           total_q = []
           while not done:
-              # self.env.render()
+              self.env.render()
               action = self.get_action(s1)
               s2, reward, done, _ = self.env.step(action)
               total_reward+=reward
@@ -320,7 +320,7 @@ class DQN(object):
           done = False
           total_reward = 0
           while not done:
-              # self.env.render()
+              self.env.render()
               action = self.get_action(s1, is_test=True)
               s2, reward, done, _ = self.env.step(action)
               total_reward+=reward
